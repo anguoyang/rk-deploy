@@ -26,6 +26,7 @@ RK3588 / RK3576 / RK356x 板子、现在还在手工 scp + 逐板手写
 ```sh
 rkdeploy pack                                       # → demo-1.1.0.tar.gz（带校验）
 rkdeploy deploy --fleet fleet.yaml demo-1.1.0.tar.gz
+rkdeploy deploy --fleet fleet.yaml --dry-run demo-1.1.0.tar.gz   # 只预览、零 SSH
 rkdeploy rollback --fleet fleet.yaml --app demo
 rkdeploy status --fleet fleet.yaml
 ```

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `deploy --dry-run`: controller-side preview — per-board target root
+  and the fully rendered systemd unit, with zero SSH contact.
+  Contributed by @faizansaiyed123 in #6 (first external PR; closes #3).
+
 ## v0.1.0 — 2026-11-02
 
 First release. Full pipeline implemented and validated end to end on a
