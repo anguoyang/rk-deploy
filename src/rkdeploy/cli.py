@@ -31,6 +31,20 @@ def cmd_deploy(args):
     app = meta["name"]
     fleet = _load(args)
     hosts = _select(fleet, args)
+    if args.dry_run:
+        unit_template = ops.read_package_unit_template(args.package)
+        for host in hosts:
+            preview = ops.preview_deploy_host(host, args.package, meta, unit_template)
+            print(f"{preview['alias']}: dry-run")
+            print(f"  Package: {preview['package']}")
+            print(f"  Target root: {preview['target_root']}")
+            print(f"  Unit file: {preview['unit_name']}")
+            print("  Rendered unit:")
+            unit_content = preview["unit_content"]
+            print(unit_content, end="" if unit_content.endswith("\n") else "\n")
+        print("Dry run complete; no SSH commands, uploads, or board-side actions were performed.")
+        return OK
+
     results = run_fleet(hosts, lambda h: ops.deploy_host(h, args.package, app, args.no_auto_rollback),
                         jobs=args.jobs)
     worst = OK
@@ -128,6 +142,8 @@ def main(argv=None):
         if name == "deploy":
             sp.add_argument("package")
             sp.add_argument("--no-auto-rollback", action="store_true")
+            sp.add_argument("--dry-run", action="store_true",
+                            help="preview deployment without contacting boards")
         else:
             sp.add_argument("--app", required=True)
             sp.add_argument("--to", default=None)
