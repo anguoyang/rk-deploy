@@ -38,3 +38,17 @@ def render_unit_template(m):
         "",
     ]
     return "\n".join(lines)
+
+
+def render_unit(template, *, install_root, app_name, app_version, run_user):
+    """Render a packaged unit template for one board on the controller."""
+    values = {
+        "@INSTALL_ROOT@": install_root,
+        "@APP_NAME@": app_name,
+        "@APP_VERSION@": app_version,
+        "@RUN_USER@": run_user,
+    }
+    rendered = template
+    for placeholder, value in values.items():
+        rendered = rendered.replace(placeholder, str(value))
+    return rendered

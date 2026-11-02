@@ -1,5 +1,7 @@
 """rk-deploy test suite (unittest style; also runs under pytest)."""
+from contextlib import redirect_stdout
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -8,11 +10,13 @@ import sys
 import tarfile
 import time
 import unittest
+from unittest.mock import patch
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
 
 from rkdeploy import manifest as mf  # noqa: E402
+from rkdeploy.cli import main  # noqa: E402
 from rkdeploy.fleet import Fleet, load_fleet  # noqa: E402
 from rkdeploy.ops import build_status_report, parse_probe, parse_result  # noqa: E402
 from rkdeploy.pack import build_package  # noqa: E402
@@ -123,6 +127,58 @@ class FleetTests(unittest.TestCase):
             self.assertEqual(fleet.select("a")[0].root_for("demo"), "/opt/demo")
             with self.assertRaises(Exception):
                 fleet.select("nope")
+
+
+class DryRunTests(unittest.TestCase):
+    def test_dry_run_previews_each_host_without_remote_operations(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            package, _ = build_package(
+                os.path.join(DEMO, "rkdeploy.yaml"),
+                os.path.join(td, "dist"),
+            )
+            fleet_path = os.path.join(td, "fleet.yaml")
+            with open(fleet_path, "w", encoding="utf-8") as fleet_file:
+                fleet_file.write(
+                    "hosts:\n"
+                    "  - alias: default\n"
+                    "    address: 192.0.2.10\n"
+                    "    user: root\n"
+                    "  - alias: custom\n"
+                    "    address: 192.0.2.11\n"
+                    "    user: deploy\n"
+                    "    install_root: /srv/apps\n"
+                )
+
+            output = io.StringIO()
+            with patch("rkdeploy.cli.run_fleet") as run_fleet:
+                with patch("rkdeploy.fleet.run_ssh") as run_ssh:
+                    with patch("rkdeploy.fleet.scp_to") as scp_to:
+                        with redirect_stdout(output):
+                            result = main([
+                                "deploy", "--fleet", fleet_path, "--dry-run", package,
+                            ])
+
+            self.assertEqual(result, 0)
+            run_fleet.assert_not_called()
+            run_ssh.assert_not_called()
+            scp_to.assert_not_called()
+
+            rendered = output.getvalue()
+            self.assertIn("default: dry-run", rendered)
+            self.assertIn("Package: demo-1.0.0.tar.gz", rendered)
+            self.assertIn("Target root: /opt/demo", rendered)
+            self.assertIn("Unit file: rkdeploy-demo.service", rendered)
+            self.assertIn("ExecStart=/usr/bin/python3 /opt/demo/current/app.py", rendered)
+            self.assertIn("User=root", rendered)
+            self.assertNotIn("@INSTALL_ROOT@", rendered)
+            self.assertNotIn("@RUN_USER@", rendered)
+
+            self.assertIn("custom: dry-run", rendered)
+            self.assertIn("Target root: /srv/apps", rendered)
+            self.assertIn("ExecStart=/usr/bin/python3 /srv/apps/current/app.py", rendered)
+            self.assertIn("Dry run complete; no SSH commands", rendered)
 
 
 class ProbeTests(unittest.TestCase):

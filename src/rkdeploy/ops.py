@@ -7,6 +7,7 @@ import tempfile
 from importlib import resources
 
 from . import fleet as fl
+from .unit import render_unit
 
 RESULT_RE = re.compile(r"RKDEPLOY_RESULT=(\S+)((?:\s+\S+)*)")
 
@@ -30,6 +31,36 @@ def read_package_meta(package_path):
     with tarfile.open(package_path, "r:gz") as tf:
         pkg = json.loads(tf.extractfile("package.json").read().decode())
     return pkg
+
+
+def read_package_unit_template(package_path):
+    """Read the unit template from a package without extracting it to disk."""
+    with tarfile.open(package_path, "r:gz") as tf:
+        template = tf.extractfile("service.template")
+        if template is None:
+            raise ValueError("package does not contain service.template")
+        return template.read().decode("utf-8")
+
+
+def preview_deploy_host(host, package_path, meta, unit_template):
+    """Build the controller-side dry-run preview for one target board."""
+    app = meta["name"]
+    root = host.root_for(app)
+    unit_name = f"rkdeploy-{app}.service"
+    unit_content = render_unit(
+        unit_template,
+        install_root=root,
+        app_name=app,
+        app_version=meta["version"],
+        run_user=meta["service"]["user"],
+    )
+    return {
+        "alias": host.alias,
+        "package": os.path.basename(package_path),
+        "target_root": root,
+        "unit_name": unit_name,
+        "unit_content": unit_content,
+    }
 
 
 def deploy_host(host, package_path, app, no_auto_rollback=False):
