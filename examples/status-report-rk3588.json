@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "tool_version": "0.1.0",
+  "generated_at": "2026-11-02T02:34:35+00:00",
+  "fleet_verdict": "HEALTHY",
+  "fleet": [
+    {
+      "alias": "rk3588-lab",
+      "reachable": true,
+      "installed": true,
+      "version": "1.0.0",
+      "previous": "1.1.0",
+      "service": "active",
+      "enabled": "enabled",
+      "main_pid": 2765477,
+      "service_since": "Mon 2026-11-02 10:34:24 CST",
+      "releases": [
+        "1.0.0",
+        "1.1.0",
+        "1.2.0"
+      ],
+      "disk_free_pct": 13,
+      "temps_c": {
+        "soc": 49,
+        "max": 50
+      },
+      "health": "ok",
+      "journal_errors_1h": 1,
+      "verdict": "HEALTHY",
+      "version_drift": false
+    }
+  ]
+}

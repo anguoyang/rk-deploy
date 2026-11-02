@@ -207,7 +207,12 @@ ssh:
    build a fresh symlink and `mv -Tf` it over the old one (never
    `ln -sfn` on a symlink-to-directory — validated finding #5).
 7. `systemctl restart`, then wait **on the board** for the health
-   check (manifest timeout).
+   check (manifest timeout). For `file` health checks, existence is
+   not enough: the file must have been written at or after this
+   deploy's restart moment — a heartbeat file kept warm by the
+   previous version's still-running process must not pass the new
+   version (found by the lifecycle test suite during v0.1
+   development, before any real board saw it).
 8. Success: update state.json; prune oldest releases beyond
    `keep_releases` (never the current or previous one).
 9. Failure: auto-rollback by default — switch back, re-render the old
@@ -311,6 +316,36 @@ Result: **all stages passed**, 105.2 s end to end including cleanup.
 - The demo app ran no real RKNN inference — by design the deploy layer
   is model-agnostic; inference correctness belongs to diagnostic
   tooling, not deployment tooling.
+
+## v0.1 implementation validation (2026-11-02, shipped CLI, same board)
+
+The released implementation was run against the same RK3588 board
+through the real `rkdeploy` CLI (fleet of one, install root under a
+test prefix, service name `rkdeploy-demo`):
+
+| Step | Result |
+|---|---|
+| `deploy` demo 1.0.0 | ok in 21.0 s (mkdir + scp + install = 3 tunnel connections) |
+| `status` | ATTENTION — only one release installed, i.e. no rollback candidate; the warning is the spec's own rule firing correctly |
+| `deploy` demo 1.1.0 | ok in 19.4 s |
+| `status` | HEALTHY — service active, version 1.1.0, disk free 13%, temps SoC 49 °C / max 50 °C |
+| `deploy` broken 1.2.0 (health file never appears, 5 s timeout) | health failed → **auto-rollback to 1.1.0**, CLI exit 6, 25.6 s total |
+| `rollback --to 1.0.0` | ok; board `state.json` history records all four actions in order |
+| `releases` / final `status` | releases [1.0.0, 1.1.0, 1.2.0], current 1.0.0, fleet verdict HEALTHY |
+
+A genuine report from the final status run ships as
+`examples/status-report-rk3588.json`. After validation the test
+service and directories were removed from the board; its pre-existing
+unrelated failed unit was the only entry left in
+`systemctl --failed`, exactly as before.
+
+Implementation detail that differs from the letter of the early
+draft, deliberately: the package also carries a rendered
+`package.env` (flat, shell-quoted KEY=VALUE) next to `package.json`,
+so the board installer never needs even a JSON parser — it reads only
+`package.env`, and each installed release gains an `install.env` with
+board-level values (install root, resolved health-check path) already
+substituted.
 
 ## Out of scope for v0.1
 

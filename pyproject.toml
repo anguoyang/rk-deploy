@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rk-deploy"
+version = "0.1.0"
+description = "Deploy RKNN apps to Rockchip boards as systemd services: manifest -> package -> fleet push / rollback / status"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.9"
+dependencies = ["PyYAML>=5.4"]
+
+[project.scripts]
+rkdeploy = "rkdeploy.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+rkdeploy = ["board/*.sh"]

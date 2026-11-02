@@ -15,22 +15,33 @@ files per board.
 
 ## Status
 
-**Specification frozen, feasibility validated on real hardware — code in
-development.** v0.1 is scheduled for the week of Nov 9, 2026. This
-repository currently contains the design specification
-([docs/SPEC.md](docs/SPEC.md)) so the format and the rules can be reviewed
-and discussed before the implementation lands.
+**v0.1.0 released (2026-11-02).** The full pipeline is implemented and
+validated end to end on a real RK3588 board (Ubuntu 22.04, systemd 249)
+using the shipped CLI — not a hand-walked prototype:
 
-The full flow — pack → push over SSH → install as a systemd service →
-push v2 → roll back to v1 → fleet status snapshot — has already been
-walked end-to-end by hand on an RK3588 board (Ubuntu 22.04, systemd 249):
-105 seconds including cleanup, and every pitfall found on the way is
-written into the spec (SSH connection overhead dominates everything,
-board-side YAML parsing is unreliable, `ln -sfn` on a directory symlink
-is a trap, a whole-machine `degraded` systemd state says nothing about
-your app).
+| Step | Result |
+|---|---|
+| deploy demo 1.0.0 | ok, 21 s (three SSH connections through a tunnel dominate) |
+| status | ATTENTION — correctly flagged "only one release, no rollback candidate yet" |
+| deploy demo 1.1.0 | ok, 19 s |
+| status | HEALTHY (SoC 49 °C, disk 13% free) |
+| deploy broken 1.2.0 | health check failed → **automatic rollback to 1.1.0**, exit code 6, 26 s |
+| rollback to 1.0.0 (explicit) | ok; final status HEALTHY |
 
-## How it will work
+A real status report from that run is in
+[examples/status-report-rk3588.json](examples/status-report-rk3588.json),
+and the earlier by-hand feasibility walk (105 s, seven pitfalls that
+shaped the spec) is documented in [docs/SPEC.md](docs/SPEC.md).
+
+Install:
+
+```sh
+pip install git+https://github.com/anguoyang/rk-deploy
+# or from a clone: pip install .
+rkdeploy --version
+```
+
+## How it works
 
 ```yaml
 # rkdeploy.yaml

@@ -1,0 +1,20 @@
+# rk-deploy demo manifest (schema 1) -- see docs/SPEC.md
+name: demo
+version: 1.0.0
+description: Generic heartbeat demo used to exercise rk-deploy end to end
+runtime:
+  type: python
+  entry: app.py
+service:
+  user: root
+  restart: on-failure
+  restart_sec: 2
+models:
+  - path: models/weights.bin   # opaque placeholder bytes; rk-deploy never inspects model files
+depends:
+  binaries: [python3]
+healthcheck:
+  type: file
+  path: "@INSTALL_ROOT@/shared/heartbeat.json"
+  timeout_sec: 15
+keep_releases: 3
