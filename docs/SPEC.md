@@ -245,6 +245,10 @@ rk-deploy-managed application from all fleet boards by default.
 safety inventory: before any destructive operation, the controller
 probes every board in the fleet. Duplicate host aliases or any
 unreachable/unverifiable board abort the operation before changes.
+```sh
+rkdeploy uninstall --fleet fleet.yaml --app <name> [--hosts ...] [--jobs 4]
+                 [--allow-last-copy] [--purge]
+```
 
 The controller refuses to remove the final installed copy when the
 selected targets contain every installed copy. `--allow-last-copy`
@@ -273,36 +277,6 @@ The status probe does not classify a shared-only install root as an
 installed application. A deployment marker (state, current release
 link, release install metadata, managed unit file, or running service)
 is needed for `INSTALLED=1`.
-
-## Uninstall (post-v0.1 addition)
-
-```sh
-rkdeploy uninstall --fleet fleet.yaml --app <name> [--hosts ...] [--jobs 4]
-                 [--allow-last-copy] [--purge]
-```
-
-The controller probes every host in the fleet before starting an uninstall,
-even when `--hosts` selects only part of the fleet. An unreachable host or an
-incomplete probe aborts before any board is changed. By default, uninstall
-refuses an operation that would remove the fleet's final installed copy.
-`--allow-last-copy` explicitly overrides that guard; it does not override an
-incomplete fleet inventory.
-
-On each selected board, the board-side POSIX shell script stops and disables
-the app's `rkdeploy-<name>.service`, removes the unit file, runs
-`systemctl daemon-reload`, then removes the managed `current` symlink,
-`releases/`, and deployment state/history files. The install root is removed
-only when empty; unexpected files are not recursively deleted.
-
-Normal uninstall preserves `shared/` and any other unexpected content.
-`--purge` explicitly removes `shared/`; it is irreversible. A shared path
-that is a symlink is refused during purge rather than following it. Repeated
-uninstall is safe, and a later `--purge` can remove shared data left by a
-previous normal uninstall.
-
-Status detection treats a shared-only root as not installed. A systemd unit,
-deployment state, current release link, release metadata, or active managed
-service is still counted conservatively as installed for the fleet guard.
 
 ## Status (fleet inspection)
 

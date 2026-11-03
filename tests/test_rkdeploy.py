@@ -539,6 +539,14 @@ class UninstallBoardTests(BoardEndToEndTests):
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
         self.assertTrue(os.path.isfile(marker))
 
+        # A removed unit produces no is-enabled stdout on systemd 249.
+        missing_unit = subprocess.run(
+            [self.fake, "is-enabled", "rkdeploy-demo.service"],
+            env=self.env, capture_output=True, text=True,
+        )
+        self.assertEqual(missing_unit.returncode, 4)
+        self.assertEqual(missing_unit.stdout, "")
+
         second = self._uninstall(purge=True)
         self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
         self.assertFalse(os.path.exists(marker))

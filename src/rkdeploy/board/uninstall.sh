@@ -154,7 +154,9 @@ else
       ;;
   esac
   ENABLED=$("$SYSTEMCTL" is-enabled "$UNIT" 2>/dev/null || true)
-  [ -n "$ENABLED" ] || abort cannot-query-service-enable-state
+  # systemd 249 reports a removed unit on stderr only, leaving stdout empty.
+  # In this UNIT_PRESENT=0 branch, that empty result is the not-found state.
+  [ -n "$ENABLED" ] || ENABLED=not-found
   case "$ENABLED" in
     enabled|enabled-runtime|linked|linked-runtime|alias)
       "$SYSTEMCTL" disable "$UNIT" >/dev/null 2>&1 || fail disable-service

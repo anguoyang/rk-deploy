@@ -15,6 +15,9 @@
 - Uninstall coverage for last-copy protection, unreachable inventory,
   shared-data preservation/purge, idempotency, symlink refusal and stop
   failures.
+- Treat empty `systemctl is-enabled` output for an already-removed unit
+  as `not-found`, so a later `--purge` works on systemd 249; the
+  regression test models that missing-unit response.
 
 ## v0.1.0 — 2026-11-02
 
