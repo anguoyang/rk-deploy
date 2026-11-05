@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `docs/SPEC.zh-CN.md`: Simplified Chinese translation of the full
+  specification. Contributed by @faizansaiyed123 in #8 (closes #5).
+
 - `deploy --dry-run`: controller-side preview — per-board target root
   and the fully rendered systemd unit, with zero SSH contact.
   Contributed by @faizansaiyed123 in #6 (first external PR; closes #3).

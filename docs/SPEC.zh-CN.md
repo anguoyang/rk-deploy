@@ -216,6 +216,11 @@ README 和本规范都明确说明了这一边界，因为人们很容易误以�
 破坏性操作之前，控制端都会探测整个 fleet 中的每一块板卡。若存在重复的 host alias，
 或任何板卡不可访问 / 无法验证，操作都会在做出更改前中止。
 
+```sh
+rkdeploy uninstall --fleet fleet.yaml --app <name> [--hosts ...] [--jobs 4]
+                 [--allow-last-copy] [--purge]
+```
+
 如果所选目标包含了所有已安装该应用的板卡，控制端会拒绝删除最后一个已安装副本。
 显式指定 `--allow-last-copy` 可以覆盖这一项“最后副本”保护，但不会绕过 fleet
 清点或重复 alias 检查。
@@ -237,31 +242,6 @@ README 和本规范都明确说明了这一边界，因为人们很容易误以�
 状态探测不会将仅包含 shared 数据的安装根目录视为已安装应用。只有存在部署标记
 （state、current 版本链接、release 安装元数据、受管理的 unit 文件或正在运行的服务），
 才会将 `INSTALLED=1`。
-
-## 卸载（v0.1 之后新增）
-
-```sh
-rkdeploy uninstall --fleet fleet.yaml --app <name> [--hosts ...] [--jobs 4]
-                 [--allow-last-copy] [--purge]
-```
-
-控制端会在开始卸载之前探测 fleet 中的每一块板卡，即使 `--hosts` 只选择了其中一部分。
-如果有板卡不可访问，或探测信息不完整，就会在更改任何板卡之前中止操作。默认情况下，
-如果卸载会移除 fleet 中最后一个已安装副本，操作就会被拒绝。
-`--allow-last-copy` 可以显式覆盖这一保护，但不能绕过不完整的 fleet 清点。
-
-在每块选中的板卡上，板卡端 POSIX shell 脚本会停止并禁用应用的
-`rkdeploy-<name>.service`，删除 unit 文件，运行 `systemctl daemon-reload`，
-然后删除受管理的 `current` 符号链接、`releases/` 和部署状态 / 历史文件。
-只有在安装根目录为空时才会删除该目录；不会递归删除意外存在的文件。
-
-普通卸载会保留 `shared/` 和其他意外存在的内容。`--purge` 会显式删除 `shared/`，
-这是不可逆的操作。如果 shared 路径本身是符号链接，脚本会拒绝跟随它进行删除。
-重复执行卸载是安全的；普通卸载之后仍可再次使用 `--purge` 删除此前保留的 shared 数据。
-
-状态检测会将仅含 shared 数据的目录视为未安装。对于 fleet 的最后副本保护，
-systemd unit、部署状态、current 版本链接、release 元数据或正在运行的受管理服务，
-仍会被保守地视为已安装。
 
 ## 状态检查（设备集群巡检）
 
