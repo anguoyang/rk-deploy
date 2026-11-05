@@ -84,6 +84,9 @@ def main(argv):
         if os.path.exists(os.path.join(STATE, unit + ".enabled")):
             print("enabled")
             return 0
+        if not os.path.isfile(os.path.join(UNITS, unit)):
+            # Match systemd 249: missing units have empty stdout (error on stderr).
+            return 4
         print("disabled")
         return 1
     if cmd == "restart" or cmd == "start":
