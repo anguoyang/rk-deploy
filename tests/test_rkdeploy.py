@@ -402,9 +402,9 @@ class BoardEndToEndTests(unittest.TestCase):
             zone_dir = os.path.join(self.thermal, name)
             os.makedirs(zone_dir)
             with open(os.path.join(zone_dir, "type"), "w", encoding="utf-8") as f:
-                f.write(zone_type + "\\n")
+                f.write(zone_type + "\n")
             with open(os.path.join(zone_dir, "temp"), "w", encoding="utf-8") as f:
-                f.write(temperature + "\\n")
+                f.write(temperature + "\n")
         self.env = dict(os.environ,
                         RKDEPLOY_SYSTEMCTL=self.fake,
                         RKDEPLOY_SYSTEMD_DIR=self.sysd,
