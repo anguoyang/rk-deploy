@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `rkdeploy status --json`: include the numeric systemd version, the
+  dynamic-linker cache's shared-library SONAMEs (without filesystem paths),
+  and every readable thermal zone's ID, type and temperature. Existing
+  SoC/maximum temperature summaries and schema-1 fields remain intact.
+  Add parser and board-script fixture coverage.
+
 - `docs/SPEC.zh-CN.md`: Simplified Chinese translation of the full
   specification. Contributed by @faizansaiyed123 in #8 (closes #5).
 

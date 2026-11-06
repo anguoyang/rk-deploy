@@ -289,16 +289,20 @@ managed service must still identify an application installation.
 |---|---|---|
 | reachable | SSH result | unreachable → board verdict `UNREACHABLE`, other items empty |
 | service | `systemctl is-active/is-enabled/show` for **this app's unit only** | not active → fail. The whole-machine `is-system-running` is never used — a healthy fleet board can sit at `degraded` for unrelated reasons (validated finding #3) |
+| systemd | numeric version from `systemctl --version` | informational; absent if systemd version cannot be read |
+| libraries | shared-library SONAMEs from `ldconfig -p` (names only; no filesystem paths) | informational; empty if the linker cache is unavailable |
 | version | `current` symlink + state.json | differs from the fleet majority → warn (version drift) |
 | releases | `releases/` inventory and size | no rollback candidate left → warn |
 | disk | free space on the install-root filesystem | <10% warn, <5% fail |
-| thermal | all thermal zones enumerated by type name; reports SoC + maximum | ≥75 °C warn, ≥85 °C fail; zone numbering is never hard-coded (finding #7) |
+| thermal | each readable thermal zone's ID, type and temperature, plus SoC + maximum summaries | ≥75 °C warn, ≥85 °C fail; zone numbering is never hard-coded (finding #7) |
 | health | manifest health check run live + journal error count, last hour | health check fails → fail |
 
 Report: JSON schema 1 (`fleet[]` per-board records + summary) and a
-terminal table, one row per board. Reports contain aliases only — no
-real addresses, hostnames, or serial numbers. A single-file HTML fleet
-report is planned for v0.2.
+terminal table, one row per board. Additive per-board fields retain the
+existing schema-1 fields. Reports contain fleet aliases, systemd version,
+thermal zone IDs/types/temperatures, and library SONAMEs only — no
+addresses, hostnames, serial numbers or library filesystem paths. A
+single-file HTML fleet report is planned for v0.2.
 
 ## Feasibility validation (2026-11-02, real RK3588 board)
 

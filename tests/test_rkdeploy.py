@@ -327,9 +327,32 @@ class ProbeTests(unittest.TestCase):
         kv = {"PROBE": "1", "INSTALLED": "1", "VERSION": "1.0.0", "SERVICE_ACTIVE": "active",
               "SERVICE_ENABLED": "enabled", "MAIN_PID": "42", "RELEASES": "1.0.0,1.1.0",
               "DISK_FREE_PCT": "50", "TEMP_SOC_C": "49", "TEMP_MAX_C": "51",
+              "SYSTEMD_VERSION": "249", "SYSTEM_LIBRARY_COUNT": "2",
+              "SYSTEM_LIBRARIES": "libc.so.6,librknnrt.so",
+              "THERMAL_ZONE_COUNT": "2",
+              "THERMAL_ZONE_0_NAME": "thermal_zone0",
+              "THERMAL_ZONE_0_TYPE": "soc-thermal",
+              "THERMAL_ZONE_0_TEMP_C": "49",
+              "THERMAL_ZONE_1_NAME": "thermal_zone1",
+              "THERMAL_ZONE_1_TYPE": "gpu-thermal",
+              "THERMAL_ZONE_1_TEMP_C": "51",
               "HEALTH": "ok", "JOURNAL_ERRORS_1H": "0"}
         rec = parse_probe("b1", kv)
         self.assertEqual(rec["verdict"], "HEALTHY")
+        self.assertEqual(rec["systemd_version"], "249")
+        self.assertEqual(rec["system_library_count"], 2)
+        self.assertEqual(rec["system_libraries"], ["libc.so.6", "librknnrt.so"])
+        self.assertEqual(rec["thermal_zones"], [
+            {"name": "thermal_zone0", "type": "soc-thermal", "temp_c": 49},
+            {"name": "thermal_zone1", "type": "gpu-thermal", "temp_c": 51},
+        ])
+        legacy = parse_probe("legacy", {
+            "PROBE": "1", "INSTALLED": "1", "SERVICE_ACTIVE": "active",
+            "SERVICE_ENABLED": "enabled", "TEMP_SOC_C": "48", "TEMP_MAX_C": "50",
+        })
+        self.assertIsNone(legacy["systemd_version"])
+        self.assertEqual(legacy["thermal_zones"], [])
+        self.assertEqual(legacy["system_libraries"], [])
         kv2 = dict(kv, DISK_FREE_PCT="3")
         self.assertEqual(parse_probe("b1", kv2)["verdict"], "UNHEALTHY")
         kv3 = dict(kv, TEMP_MAX_C="80")
@@ -370,10 +393,23 @@ class BoardEndToEndTests(unittest.TestCase):
         self.fake = os.path.join(self.td, "systemctl")
         shutil.copy(FAKE, self.fake)
         os.chmod(self.fake, 0o755)
+        self.thermal = os.path.join(self.td, "sysfs", "thermal")
+        os.makedirs(self.thermal)
+        for name, zone_type, temperature in (
+            ("thermal_zone0", "soc-thermal", "49000"),
+            ("thermal_zone1", "gpu-thermal", "51000"),
+        ):
+            zone_dir = os.path.join(self.thermal, name)
+            os.makedirs(zone_dir)
+            with open(os.path.join(zone_dir, "type"), "w", encoding="utf-8") as f:
+                f.write(zone_type + "\n")
+            with open(os.path.join(zone_dir, "temp"), "w", encoding="utf-8") as f:
+                f.write(temperature + "\n")
         self.env = dict(os.environ,
                         RKDEPLOY_SYSTEMCTL=self.fake,
                         RKDEPLOY_SYSTEMD_DIR=self.sysd,
-                        FAKE_SYSTEMCTL_DIR=self.state)
+                        FAKE_SYSTEMCTL_DIR=self.state,
+                        RKDEPLOY_THERMAL_DIR=self.thermal)
 
     def tearDown(self):
         subprocess.run([self.fake, "stop", "rkdeploy-demo.service"],
@@ -474,8 +510,17 @@ class LifecycleTests(BoardEndToEndTests):
         self.assertEqual(kv["VERSION"], "1.0.0")
         self.assertEqual(kv["SERVICE_ACTIVE"], "active")
         self.assertEqual(kv["HEALTH"], "ok")
+        self.assertEqual(kv["SYSTEMD_VERSION"], "249")
+        self.assertEqual(kv["THERMAL_ZONE_COUNT"], "2")
+        self.assertEqual(kv["THERMAL_ZONE_0_NAME"], "thermal_zone0")
+        self.assertEqual(kv["THERMAL_ZONE_0_TYPE"], "soc-thermal")
+        self.assertEqual(kv["THERMAL_ZONE_0_TEMP_C"], "49")
+        self.assertEqual(kv["THERMAL_ZONE_1_TYPE"], "gpu-thermal")
         rec = parse_probe("testboard", kv)
         self.assertIn(rec["verdict"], ("HEALTHY", "ATTENTION"))
+        self.assertEqual(rec["systemd_version"], "249")
+        self.assertEqual(len(rec["thermal_zones"]), 2)
+        self.assertEqual(rec["thermal_zones"][1]["type"], "gpu-thermal")
 
 
 class UninstallBoardTests(BoardEndToEndTests):
