@@ -36,7 +36,7 @@ THERMAL_DIR="${RKDEPLOY_THERMAL_DIR:-/sys/class/thermal}"
 SOC=""; MAX=-1; THERMAL_ZONE_COUNT=0
 for z in "$THERMAL_DIR"/thermal_zone*; do
   [ -f "$z/type" ] && [ -f "$z/temp" ] || continue
-  T=$(cat "$z/type" 2>/dev/null | tr '\r\n' '  ')
+  T=$(cat "$z/type" 2>/dev/null | tr -d '\r\n')
   V=$(cat "$z/temp" 2>/dev/null) || continue
   case "$V" in ''|*[!0-9-]*) continue ;; esac
   C=$((V / 1000))
