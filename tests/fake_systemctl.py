@@ -69,6 +69,9 @@ def main(argv):
         return 0
     cmd = args[0]
     unit = args[-1] if len(args) > 1 else ""
+    if cmd == "--version":
+        print("systemd 249 (fake)")
+        return 0
     if cmd == "daemon-reload":
         return 0
     if cmd == "enable":

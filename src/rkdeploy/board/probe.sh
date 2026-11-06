@@ -11,6 +11,47 @@ UNIT_PATH="$SYSTEMD_DIR/$UNIT"
 
 echo "PROBE=1"
 
+# Board environment diagnostics are read-only and deliberately omit filesystem
+# paths, hostnames and addresses. Library names come from the dynamic-linker
+# cache; thermal zone identifiers/types are retained instead of only summaries.
+SYSTEMD_VERSION=$("$SYSTEMCTL" --version 2>/dev/null | awk 'NR == 1 {print $2}')
+case "$SYSTEMD_VERSION" in
+  ''|*[!0-9.]*) SYSTEMD_VERSION="" ;;
+esac
+echo "SYSTEMD_VERSION=$SYSTEMD_VERSION"
+
+SYSTEM_LIBRARIES=""
+if command -v ldconfig >/dev/null 2>&1; then
+  SYSTEM_LIBRARIES=$(ldconfig -p 2>/dev/null | awk '/=>/ {print $1}' | sort -u | tr '\n' ',')
+  SYSTEM_LIBRARIES=${SYSTEM_LIBRARIES%,}
+fi
+SYSTEM_LIBRARY_COUNT=""
+if [ -n "$SYSTEM_LIBRARIES" ]; then
+  SYSTEM_LIBRARY_COUNT=$(printf '%s\n' "$SYSTEM_LIBRARIES" | awk -F, '{print NF}')
+fi
+echo "SYSTEM_LIBRARY_COUNT=$SYSTEM_LIBRARY_COUNT"
+echo "SYSTEM_LIBRARIES=$SYSTEM_LIBRARIES"
+
+THERMAL_DIR="${RKDEPLOY_THERMAL_DIR:-/sys/class/thermal}"
+SOC=""; MAX=-1; THERMAL_ZONE_COUNT=0
+for z in "$THERMAL_DIR"/thermal_zone*; do
+  [ -f "$z/type" ] && [ -f "$z/temp" ] || continue
+  T=$(cat "$z/type" 2>/dev/null | tr '\r\n' '  ')
+  V=$(cat "$z/temp" 2>/dev/null) || continue
+  case "$V" in ''|*[!0-9-]*) continue ;; esac
+  C=$((V / 1000))
+  printf 'THERMAL_ZONE_%s_NAME=%s\n' "$THERMAL_ZONE_COUNT" "$(basename "$z")"
+  printf 'THERMAL_ZONE_%s_TYPE=%s\n' "$THERMAL_ZONE_COUNT" "$T"
+  printf 'THERMAL_ZONE_%s_TEMP_C=%s\n' "$THERMAL_ZONE_COUNT" "$C"
+  THERMAL_ZONE_COUNT=$((THERMAL_ZONE_COUNT + 1))
+  [ "$C" -gt "$MAX" ] && MAX=$C
+  T_LOWER=$(printf '%s' "$T" | tr '[:upper:]' '[:lower:]')
+  case "$T_LOWER" in *soc*) SOC=$C ;; esac
+done
+echo "THERMAL_ZONE_COUNT=$THERMAL_ZONE_COUNT"
+echo "TEMP_SOC_C=$SOC"
+echo "TEMP_MAX_C=$MAX"
+
 # An install root can legitimately remain after uninstall because shared/
 # survives. Count deployment metadata, a release, a unit file, or a running
 # service instead of treating any directory as an installed application.
@@ -77,18 +118,6 @@ echo "RELEASES=$REL"
 echo "RELEASE_COUNT=$RELEASE_COUNT"
 echo "DISK_FREE_PCT=$DISK_FREE_PCT"
 echo "DISK_FREE_KB=$DISK_FREE_KB"
-
-SOC=""; MAX=-1
-for z in /sys/class/thermal/thermal_zone*; do
-  [ -f "$z/type" ] && [ -f "$z/temp" ] || continue
-  T=$(cat "$z/type" 2>/dev/null); V=$(cat "$z/temp" 2>/dev/null) || continue
-  case "$V" in ''|*[!0-9-]*) continue ;; esac
-  C=$((V / 1000))
-  [ "$C" -gt "$MAX" ] && MAX=$C
-  case "$T" in *soc*) SOC=$C ;; esac
-done
-echo "TEMP_SOC_C=$SOC"
-echo "TEMP_MAX_C=$MAX"
 
 # Live health check, once, from the current release's install.env.
 HEALTH=skip

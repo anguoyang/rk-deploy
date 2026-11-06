@@ -148,6 +148,24 @@ def parse_probe(alias, kv):
             return int(v)
         except (TypeError, ValueError):
             return default
+
+    thermal_zones = []
+    zone_count = as_int(kv.get("THERMAL_ZONE_COUNT"), 0) or 0
+    for index in range(zone_count):
+        prefix = f"THERMAL_ZONE_{index}_"
+        name = kv.get(prefix + "NAME")
+        zone_type = kv.get(prefix + "TYPE")
+        temperature = as_int(kv.get(prefix + "TEMP_C"))
+        if name or zone_type or temperature is not None:
+            thermal_zones.append({
+                "name": name or None,
+                "type": zone_type or None,
+                "temp_c": temperature,
+            })
+
+    system_libraries = [
+        name for name in (kv.get("SYSTEM_LIBRARIES") or "").split(",") if name
+    ]
     rec = {
         "alias": alias,
         "reachable": kv.get("PROBE") == "1",
@@ -161,6 +179,10 @@ def parse_probe(alias, kv):
         "releases": [x for x in (kv.get("RELEASES") or "").split(",") if x],
         "disk_free_pct": as_int(kv.get("DISK_FREE_PCT")),
         "temps_c": {"soc": as_int(kv.get("TEMP_SOC_C")), "max": as_int(kv.get("TEMP_MAX_C"))},
+        "thermal_zones": thermal_zones,
+        "systemd_version": kv.get("SYSTEMD_VERSION") or None,
+        "system_library_count": as_int(kv.get("SYSTEM_LIBRARY_COUNT")),
+        "system_libraries": system_libraries,
         "health": kv.get("HEALTH"),
         "journal_errors_1h": as_int(kv.get("JOURNAL_ERRORS_1H"), -1),
     }
