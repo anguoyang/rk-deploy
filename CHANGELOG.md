@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 — 2026-11-08
+
 - `rkdeploy status --html report.html`: standalone offline fleet report with
   inline CSS, per-board diagnostics and thermal zones, and library counts
   only. Works independently of or alongside `--json`; JSON schema stays at 1.

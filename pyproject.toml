@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rk-deploy"
-version = "0.1.0"
+version = "0.2.0"
 description = "Deploy RKNN apps to Rockchip boards as systemd services: manifest -> package -> fleet push / rollback / status"
 readme = "README.md"
 license = {text = "Apache-2.0"}

@@ -6,4 +6,4 @@ the fleet. The board side is a set of POSIX shell scripts shipped in
 ``rkdeploy.board`` that run on the board with no extra dependencies.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
