@@ -33,14 +33,14 @@ rk-deploy 的 status 只检查由它自己部署的应用。
 7. **离线运行，不进行遥测、注册或许可证检查。**
 8. 许可证为 Apache-2.0；CLI 命令名称为 `rkdeploy`。
 
-## CLI（v0.1）
+## CLI
 
 ```
 rkdeploy pack     [--manifest rkdeploy.yaml] [--out dist/]
 rkdeploy deploy   --fleet fleet.yaml <package.tar.gz> [--hosts tag:x|name,...] [--jobs 4] [--no-auto-rollback]
 rkdeploy rollback --fleet fleet.yaml --app <name> [--to <version>] [--hosts ...]
 rkdeploy uninstall --fleet fleet.yaml --app <name> [--hosts ...] [--jobs 4] [--allow-last-copy] [--purge]
-rkdeploy status   --fleet fleet.yaml [--app <name>] [--json report.json]
+rkdeploy status   --fleet fleet.yaml --app <name> [--json report.json] [--html report.html]
 rkdeploy releases --fleet fleet.yaml --app <name>
 rkdeploy --version
 ```
@@ -261,7 +261,12 @@ rkdeploy uninstall --fleet fleet.yaml --app <name> [--hosts ...] [--jobs 4]
 
 报告采用 JSON schema 1（包含每块板卡记录的 `fleet[]` 和汇总信息），同时输出终端表格，
 每块板卡占一行。报告只包含 alias，不包含真实地址、主机名或序列号。
-单文件 HTML 设备集群报告计划在 v0.2 中提供。
+
+`status --html report.html` 生成单文件离线 HTML 报告：内联 CSS、无 JavaScript、
+无外部资源与网络引用，直接用浏览器打开。它与 `--json` 使用同一个 schema-1 报告对象，
+展示设备集群 verdict 与生成时间，每块板卡一张卡片，含 JSON 的全部字段（逐区 thermal 诊断
+与 systemd 版本在内）。库只以 `system_library_count` 数量呈现，不展开可能很长的
+`system_libraries` 名单。缺失或空值显示为 `-`（false 与 0 仍正常显示）。
 
 ## 可行性验证（2026-11-02，真实 RK3588 板卡）
 
