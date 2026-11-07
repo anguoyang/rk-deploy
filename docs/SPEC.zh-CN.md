@@ -253,6 +253,8 @@ rkdeploy uninstall --fleet fleet.yaml --app <name> [--hosts ...] [--jobs 4]
 |---|---|---|
 | reachable | SSH result | 无法连接 → 板卡判定为 `UNREACHABLE`，其他项目留空 |
 | service | 仅针对**当前应用自己的 unit**执行 `systemctl is-active/is-enabled/show` | 未处于 active 状态 → fail。绝不会使用整台机器的 `is-system-running`——健康的设备集群板卡也可能因为无关原因（例如 logrotate unit）处于 `degraded` 状态（已验证的发现 #3） |
+| systemd | `systemctl --version` 输出的数字版本号 | 仅作参考信息；读不到则留空 |
+| libraries | `ldconfig -p` 输出的共享库 SONAME（只含名字，不含文件系统路径） | 仅作参考信息；读不到链接器缓存则为空 |
 | version | `current` 符号链接 + state.json | 与设备集群中的多数版本不一致 → warn（版本漂移） |
 | releases | `releases/` 清单及大小 | 没有可用于回滚的候选版本 → warn |
 | disk | 安装根目录所在文件系统的可用空间 | 低于 10% → warn；低于 5% → fail |
