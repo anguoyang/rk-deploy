@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(REPO, "src"))
 from rkdeploy import manifest as mf  # noqa: E402
 from rkdeploy.cli import main  # noqa: E402
 from rkdeploy.fleet import Fleet, load_fleet  # noqa: E402
+from rkdeploy.html_report import render_html_report  # noqa: E402
 from rkdeploy.ops import board_script, build_status_report, parse_probe, parse_result, probe_host  # noqa: E402
 from rkdeploy.pack import build_package  # noqa: E402
 from rkdeploy.unit import render_unit_template  # noqa: E402
@@ -375,6 +376,141 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(parse_result(out)[0], "rolled-back")
         self.assertEqual(parse_result(out)[1]["failed-version"], "1.1.0")
         self.assertIsNone(parse_result("nothing here"))
+
+
+class HTMLReportTests(unittest.TestCase):
+    def test_diagnostics_and_missing_fields_render_without_external_resources(self):
+        report = {
+            "schema": 1, "tool_version": "0.1.0",
+            "generated_at": "2026-11-07T12:00:00+00:00", "fleet_verdict": "HEALTHY",
+            "fleet": [{
+                "alias": "rk2", "reachable": True, "installed": True,
+                "verdict": "HEALTHY", "version": "1.2.3", "service": "active",
+                "enabled": "enabled", "releases": ["1.2.3", "1.2.2"],
+                "disk_free_pct": 13, "temps_c": {"soc": 49, "max": 51},
+                "thermal_zones": [
+                    {"name": "thermal_zone0", "type": "soc-thermal", "temp_c": 49},
+                    {"name": "thermal_zone1", "type": "gpu-thermal", "temp_c": 51},
+                    {"name": "thermal_zone2", "type": None},
+                ],
+                "systemd_version": "249", "system_library_count": 1617,
+                "system_libraries": [f"libhidden{i}.so" for i in range(1617)],
+                "health": "ok", "journal_errors_1h": 0, "previous": None,
+            }, {
+                "alias": "offline", "reachable": False, "verdict": "UNREACHABLE",
+                "releases": [], "health": "", "temps_c": None,
+            }],
+        }
+        original = json.dumps(report)
+        html = render_html_report(report)
+        for value in ("HEALTHY", "2026-11-07T12:00:00+00:00", "rk2", "offline",
+                      "UNREACHABLE", "1.2.3, 1.2.2", "thermal_zone0", "soc-thermal",
+                      "thermal_zone1", "gpu-thermal", "thermal_zone2"):
+            self.assertIn(value, html)
+        for key, value in (("reachable", "true"), ("installed", "true"),
+                           ("version", "1.2.3"), ("service", "active"),
+                           ("enabled", "enabled"), ("disk_free_pct", "13"),
+                           ("temps_c.soc (°C)", "49"), ("temps_c.max (°C)", "51"),
+                           ("systemd_version", "249"), ("system_library_count", "1617"),
+                           ("journal_errors_1h", "0"), ("health", "ok"),
+                           ("reachable", "false"), ("previous", "-"),
+                           ("installed", "-"), ("releases", "-"), ("health", "-")):
+            self.assertIn(f"<dt>{key}</dt><dd>{value}</dd>", html)
+        self.assertIn('<td>thermal_zone2</td><td>-</td><td>-</td>', html)
+        self.assertIn('<h3>thermal_zones</h3>\n<p>-</p>', html)
+        for forbidden in ("http:", "https:", "//", "url(", "@import", "<script",
+                          "<link", "src=", "href=", "libhidden", "system_libraries", "<dd></dd>"):
+            self.assertNotIn(forbidden, html)
+        self.assertEqual(json.dumps(report), original, "rendering must not mutate JSON data")
+
+    def test_report_text_is_escaped(self):
+        payload = '<script>alert("x")</script>&'
+        html = render_html_report({
+            "fleet_verdict": payload, "generated_at": payload,
+            "fleet": [{"alias": payload, "verdict": payload, "version": payload,
+                       "releases": [payload], "health": payload,
+                       "thermal_zones": [{"name": payload, "type": payload}]}],
+        })
+        self.assertNotIn(payload, html)
+        self.assertNotIn("<script", html)
+        self.assertIn('&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;&amp;', html)
+
+    def test_empty_report_displays_placeholders(self):
+        html = render_html_report({})
+        self.assertIn('<dt>generated_at</dt><dd>-</dd>', html)
+        self.assertIn('Boards: -', html)
+
+
+class StatusHTMLCLITests(unittest.TestCase):
+    """Exercise the real CLI and fleet parser with a local fake SSH executable."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        self.tempdir = tempfile.TemporaryDirectory(prefix="rkdeploy-html-")
+        self.addCleanup(self.tempdir.cleanup)
+        self.td = Path(self.tempdir.name)
+        (self.td / "fleet.yaml").write_text(
+            "hosts:\n"
+            "  - {alias: rk2-fake, address: 192.0.2.10}\n"
+            "  - {alias: rk4-fake, address: 192.0.2.11}\n", encoding="utf-8")
+        (self.td / "ssh").write_text(
+            "#!/bin/sh\ncat >/dev/null\ncat <<'PROBE_DATA'\n"
+            "PROBE=1\nINSTALLED=1\nSERVICE_ACTIVE=active\nSERVICE_ENABLED=enabled\n"
+            "VERSION=1.1.0\nRELEASES=1.0.0,1.1.0\nDISK_FREE_PCT=50\n"
+            "TEMP_SOC_C=49\nTEMP_MAX_C=51\nHEALTH=ok\nPROBE_DATA\n", encoding="utf-8")
+        (self.td / "ssh").chmod(0o755)
+        self.env = dict(os.environ, PATH=str(self.td) + os.pathsep + os.environ["PATH"],
+                        PYTHONPATH=os.path.join(REPO, "src"))
+
+    def _status(self, *options):
+        return subprocess.run(
+            [sys.executable, "-m", "rkdeploy.cli", "status", "--fleet", "fleet.yaml",
+             "--app", "demo", *options], cwd=self.td, env=self.env,
+            capture_output=True, text=True, timeout=30)
+
+    def test_html_only_and_overwrite(self):
+        output = self.td / "report.html"
+        for overwrite in (False, True):
+            with self.subTest(overwrite=overwrite):
+                if overwrite:
+                    output.write_text("STALE REPORT", encoding="utf-8")
+                result = self._status("--html", "report.html")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                html = output.read_text(encoding="utf-8")
+                for expected in ("HEALTHY", "rk2-fake", "rk4-fake"):
+                    self.assertIn(expected, html)
+                self.assertNotIn("STALE REPORT", html)
+                self.assertEqual(list(self.td.glob("*.json")), [])
+
+    def test_json_and_html_can_be_written_independently_or_together(self):
+        result = self._status("--json", "report.json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.td / "report.html").exists())
+        result = self._status("--html", "report.html", "--json", "report.json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads((self.td / "report.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["schema"], 1)
+        self.assertEqual((self.td / "report.html").read_text(encoding="utf-8"),
+                         render_html_report(report))
+
+    def test_html_write_errors_return_usage_error(self):
+        for destination in ("missing/report.html", "."):
+            with self.subTest(destination=destination):
+                result = self._status("--html", destination)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("error:", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertNotIn("report written", result.stdout)
+
+    def test_not_installed_still_writes_html_and_preserves_exit_code(self):
+        ssh = self.td / "ssh"
+        ssh.write_text(ssh.read_text(encoding="utf-8").replace("INSTALLED=1", "INSTALLED=0"),
+                       encoding="utf-8")
+        result = self._status("--html", "report.html")
+        self.assertEqual(result.returncode, 5, result.stderr)
+        self.assertIn("NOT_INSTALLED", (self.td / "report.html").read_text(encoding="utf-8"))
 
 
 class BoardEndToEndTests(unittest.TestCase):

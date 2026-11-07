@@ -5,6 +5,7 @@ import sys
 
 from . import __version__, ops
 from .fleet import FleetError, load_fleet, run_fleet
+from .html_report import render_html_report
 from .manifest import ManifestError, NAME_RE
 from .pack import build_package
 
@@ -200,10 +201,18 @@ def cmd_status(args):
               f"service={r.get('service') or '-'} disk_free={r.get('disk_free_pct')}% "
               f"temp_max={temps.get('max')}C" + (" DRIFT" if r.get("version_drift") else ""))
     print(f"fleet verdict: {report['fleet_verdict']}")
-    if args.json:
-        with open(args.json, "w", encoding="utf-8") as f:
-            json.dump(report, f, indent=2)
-        print(f"report written to {args.json}")
+    try:
+        if args.json:
+            with open(args.json, "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2)
+            print(f"report written to {args.json}")
+        if args.html:
+            with open(args.html, "w", encoding="utf-8") as f:
+                f.write(render_html_report(report))
+            print(f"report written to {args.html}")
+    except OSError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return USAGE
     return OK if report["fleet_verdict"] in ("HEALTHY", "ATTENTION") else PARTIAL
 
 
@@ -265,6 +274,7 @@ def main(argv=None):
     sp.add_argument("--hosts", default=None)
     sp.add_argument("--jobs", type=int, default=4)
     sp.add_argument("--json", default=None)
+    sp.add_argument("--html", default=None, help="write a standalone offline HTML report")
     sp.set_defaults(fn=cmd_status)
 
     sp = sub.add_parser("releases", help="list installed releases per board")

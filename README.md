@@ -63,7 +63,8 @@ rkdeploy pack                                  # → demo-1.1.0.tar.gz (checksum
 rkdeploy deploy --fleet fleet.yaml demo-1.1.0.tar.gz
 rkdeploy deploy --fleet fleet.yaml --dry-run demo-1.1.0.tar.gz  # preview only, no SSH
 rkdeploy rollback --fleet fleet.yaml --app demo
-rkdeploy status --fleet fleet.yaml             # JSON + per-board summary
+rkdeploy status --fleet fleet.yaml --app demo --json report.json  # JSON + per-board summary
+rkdeploy status --fleet fleet.yaml --app demo --html report.html  # single-file offline HTML; can combine with --json
 rkdeploy uninstall --fleet fleet.yaml --app demo
 rkdeploy uninstall --fleet fleet.yaml --app demo --allow-last-copy
 rkdeploy uninstall --fleet fleet.yaml --app demo --purge

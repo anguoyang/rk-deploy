@@ -28,7 +28,8 @@ rkdeploy pack                                       # → demo-1.1.0.tar.gz（�
 rkdeploy deploy --fleet fleet.yaml demo-1.1.0.tar.gz
 rkdeploy deploy --fleet fleet.yaml --dry-run demo-1.1.0.tar.gz   # 只预览、零 SSH
 rkdeploy rollback --fleet fleet.yaml --app demo
-rkdeploy status --fleet fleet.yaml
+rkdeploy status --fleet fleet.yaml --app demo
+rkdeploy status --fleet fleet.yaml --app demo --html report.html  # 单文件离线 HTML，可与 --json 同用
 ```
 
 设计铁律：只处理通用应用包、模型文件不透明搬运从不解析；
