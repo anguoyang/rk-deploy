@@ -39,14 +39,14 @@ overlap: rk-deploy's status only looks at the apps it deployed.
 7. **Offline, no telemetry, no registration, no license checks.**
 8. License Apache-2.0; CLI name `rkdeploy`.
 
-## CLI (v0.1)
+## CLI
 
 ```
 rkdeploy pack     [--manifest rkdeploy.yaml] [--out dist/]
 rkdeploy deploy   --fleet fleet.yaml <package.tar.gz> [--hosts tag:x|name,...] [--jobs 4] [--no-auto-rollback]
 rkdeploy rollback --fleet fleet.yaml --app <name> [--to <version>] [--hosts ...]
 rkdeploy uninstall --fleet fleet.yaml --app <name> [--hosts ...] [--jobs 4] [--allow-last-copy] [--purge]
-rkdeploy status   --fleet fleet.yaml [--app <name>] [--json report.json]
+rkdeploy status   --fleet fleet.yaml --app <name> [--json report.json] [--html report.html]
 rkdeploy releases --fleet fleet.yaml --app <name>
 rkdeploy --version
 ```
@@ -301,8 +301,22 @@ Report: JSON schema 1 (`fleet[]` per-board records + summary) and a
 terminal table, one row per board. Additive per-board fields retain the
 existing schema-1 fields. Reports contain fleet aliases, systemd version,
 thermal zone IDs/types/temperatures, and library SONAMEs only — no
-addresses, hostnames, serial numbers or library filesystem paths. A
-single-file HTML fleet report is planned for v0.2.
+addresses, hostnames, serial numbers or library filesystem paths.
+
+`status --html report.html` writes a single-file offline HTML report with
+inline CSS, no JavaScript and no external resources or network references;
+open it directly in a browser. It uses the same schema-1 report object as
+`--json`, showing the fleet verdict and generation time, and one card per
+board with the JSON fields, including per-zone thermal diagnostics and
+systemd version. Libraries are represented only by `system_library_count`;
+the potentially large `system_libraries` list is not expanded. Missing or
+empty values display as `-` (false and zero remain visible).
+
+`--html` and `--json` work independently or together. Using only `--html`
+does not write a JSON file. Existing output files are overwritten; report
+write failures (including a missing parent directory) print an error and
+return exit code 2. Successful writes preserve status verdict exit codes:
+0 for `HEALTHY`/`ATTENTION`, 5 otherwise.
 
 ## Feasibility validation (2026-11-02, real RK3588 board)
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `rkdeploy status --html report.html`: standalone offline fleet report with
+  inline CSS, per-board diagnostics and thermal zones, and library counts
+  only. Works independently of or alongside `--json`; JSON schema stays at 1.
+
 - `rkdeploy status --json`: include the numeric systemd version, the
   dynamic-linker cache's shared-library SONAMEs (without filesystem paths),
   and every readable thermal zone's ID, type and temperature. Existing
