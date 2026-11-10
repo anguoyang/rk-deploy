@@ -37,7 +37,7 @@ rk-deploy 的 status 只检查由它自己部署的应用。
 
 ```
 rkdeploy pack     [--manifest rkdeploy.yaml] [--out dist/]
-rkdeploy deploy   --fleet fleet.yaml <package.tar.gz> [--hosts tag:x|name,...] [--jobs 4] [--no-auto-rollback]
+rkdeploy deploy   --fleet fleet.yaml <package.tar.gz> [--hosts tag:x|name,...] [--jobs 4] [--no-auto-rollback] [--report run.json] [--retry-from run.json]
 rkdeploy rollback --fleet fleet.yaml --app <name> [--to <version>] [--hosts ...]
 rkdeploy uninstall --fleet fleet.yaml --app <name> [--hosts ...] [--jobs 4] [--allow-last-copy] [--purge]
 rkdeploy status   --fleet fleet.yaml --app <name> [--json report.json] [--html report.html]
@@ -194,6 +194,49 @@ ssh:
    （绝不会删除当前版本或上一个版本）。
 9. 失败：默认自动回滚——切回旧版本、重新渲染旧 unit、重启并再次检查健康状态；
    然后报告 `DEPLOY_FAILED_ROLLED_BACK`（退出码 6）。
+
+## 部署报告与失败板重推
+
+`deploy --report run.json` 在部署完成后写一份 JSON 报告，包括未成功的板卡结果。
+已有的输出文件会被覆盖。部署报告与未改动的状态 JSON schema 1 是分开的：
+
+```json
+{
+  "schema_version": 1,
+  "kind": "deploy",
+  "app": "demo",
+  "package": "demo-1.1.0.tar.gz",
+  "generated_at": "2026-11-10T00:00:00+00:00",
+  "boards": [
+    {"alias": "board-a", "outcome": "ok", "version": "1.1.0"},
+    {"alias": "board-b", "outcome": "unreachable", "version": null}
+  ]
+}
+```
+
+`app` 是应用包元数据里的名字；`package` 是不带目录的应用包文件名。
+`generated_at` 是 ISO 8601 UTC 时间。每个被选中的板卡都有一条 alias、outcome
+和上报的 version（拿不到时为 `null`）。板卡操作中抛出的异常记为 outcome `error`。
+报告写盘失败（包括父目录不存在）时，向 stderr 打一条警告，部署的退出码不变。
+
+```sh
+rkdeploy deploy demo-1.1.0.tar.gz --fleet fleet.yaml --report run.json
+rkdeploy deploy demo-1.1.0.tar.gz --fleet fleet.yaml --retry-from run.json --report retry.json
+```
+
+`--retry-from` 读入一份部署报告，只选中 outcome 不是 `ok` 的板卡（包括
+`rolled-back`）。在任何 SSH 接触之前，它先校验：报告是可读的 JSON、
+`kind: "deploy"`、`schema_version: 1`、应用名与所给应用包一致、`boards`
+列表里的每条都有非空的 alias 和 outcome 字符串。输入不合法时退出码 2。
+每个失败 alias 都必须存在于所给 fleet 里；缺失的 alias 会被列出，整个重推
+以退出码 2 拒绝。alias 选择复用已有的 fleet 选择器，且必须精确解析为
+失败 alias 集合。成功的板卡不必留在 fleet 里。如果没有失败板卡，命令
+打印无板可推、退出 0，不做 SSH 接触也不写新的部署报告。
+
+重推走正常的部署操作、逐板输出与退出码规则。`--jobs` 与 `--no-auto-rollback`
+仍然适用，`--report` 可以保存重推的结果。`--retry-from` 不能与 `--hosts`
+或 `--dry-run` 联用；`--report` 不能与 `--dry-run` 联用。这些冲突属于用法
+错误（退出码 2），在接触板卡之前就报错。
 
 ## 回滚
 
