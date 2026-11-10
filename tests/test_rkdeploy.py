@@ -1,5 +1,6 @@
 """rk-deploy test suite (unittest style; also runs under pytest)."""
-from contextlib import redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
+from datetime import datetime, timedelta
 import hashlib
 import io
 import json
@@ -180,6 +181,201 @@ class DryRunTests(unittest.TestCase):
             self.assertIn("Target root: /srv/apps", rendered)
             self.assertIn("ExecStart=/usr/bin/python3 /srv/apps/current/app.py", rendered)
             self.assertIn("Dry run complete; no SSH commands", rendered)
+
+
+class DeployReportTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        tempdir = tempfile.TemporaryDirectory(prefix="rkdeploy-retry-")
+        self.addCleanup(tempdir.cleanup)
+        self.td = Path(tempdir.name)
+        self.package, _ = build_package(os.path.join(DEMO, "rkdeploy.yaml"), self.td / "dist")
+        self.fleet_path = self.td / "fleet.yaml"
+        self.fleet_path.write_text(
+            "hosts:\n"
+            "  - {alias: a, address: 192.0.2.1, tags: [pilot]}\n"
+            "  - {alias: b, address: 192.0.2.2, tags: [pilot]}\n",
+            encoding="utf-8")
+        self.report_path = self.td / "run.json"
+        # Use the existing transport-mock convention; the real deploy_host
+        # and run_fleet still run, with no subprocess or remote board involved.
+        mocks = ExitStack()
+        self.addCleanup(mocks.close)
+        self.ssh = mocks.enter_context(patch("rkdeploy.ops.fl.run_ssh"))
+        self.scp = mocks.enter_context(patch("rkdeploy.ops.fl.scp_to"))
+        self.ssh.side_effect = AssertionError("unexpected SSH contact")
+        self.scp.side_effect = AssertionError("unexpected upload")
+
+    def _run(self, *options):
+        output, errors = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), redirect_stderr(errors):
+            code = main(["deploy", self.package, "--fleet", str(self.fleet_path),
+                         "--jobs", "1", *map(str, options)])
+        return code, output.getvalue(), errors.getvalue()
+
+    def _report(self, outcomes, **overrides):
+        report = {"schema_version": 1, "kind": "deploy", "app": "demo",
+                  "package": "demo-1.0.0.tar.gz", "generated_at": "2026-11-10T00:00:00+00:00",
+                  "boards": [{"alias": alias, "outcome": outcome, "version": None}
+                             for alias, outcome in outcomes]}
+        report.update(overrides)
+        self.report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    def _transport(self, outcomes):
+        def ssh(host, command, **kwargs):
+            outcome = outcomes[host.alias]
+            if command.startswith("mkdir"):
+                if outcome == "unreachable":
+                    return subprocess.CompletedProcess([], 255, "", "offline")
+                return subprocess.CompletedProcess([], 0, "", "")
+            if isinstance(outcome, Exception):
+                raise outcome
+            return subprocess.CompletedProcess(
+                [], 0, f"RKDEPLOY_RESULT={outcome} version=1.0.0\n", "")
+
+        self.ssh.side_effect = ssh
+        self.scp.side_effect = None
+        self.scp.return_value = subprocess.CompletedProcess([], 0, "", "")
+
+    def _assert_no_contact(self):
+        self.ssh.assert_not_called()
+        self.scp.assert_not_called()
+
+    def test_report_records_results_and_preserves_normal_output(self):
+        self._transport({"a": "ok", "b": "unreachable"})
+        plain = self._run()
+        self.assertEqual(plain, (5, "a: ok version=1.0.0\nb: unreachable\n", ""))
+        reported = self._run("--report", self.report_path)
+        self.assertEqual(reported, (5, plain[1] + f"report written to {self.report_path}\n", ""))
+        report = json.loads(self.report_path.read_text(encoding="utf-8"))
+        timestamp = datetime.fromisoformat(report.pop("generated_at"))
+        self.assertEqual(timestamp.utcoffset(), timedelta(0))
+        self.assertEqual(report, {
+            "schema_version": 1, "kind": "deploy", "app": "demo",
+            "package": "demo-1.0.0.tar.gz",
+            "boards": [{"alias": "a", "outcome": "ok", "version": "1.0.0"},
+                       {"alias": "b", "outcome": "unreachable", "version": None}],
+        })
+
+    def test_all_ok_or_empty_report_is_noop(self):
+        for outcomes in ([("a", "ok"), ("absent", "ok")], []):
+            with self.subTest(outcomes=outcomes):
+                self._report(outcomes)
+                code, output, errors = self._run("--retry-from", self.report_path)
+                self.assertEqual(code, 0, errors)
+                self.assertIn("nothing to retry", output.lower())
+                self._assert_no_contact()
+
+    def test_mixed_report_selects_only_failed_boards_and_can_write_new_report(self):
+        self._report([("a", "ok"), ("b", "rolled-back")])
+        self._transport({"b": "ok"})
+        original_select = Fleet.select
+        with patch.object(Fleet, "select", autospec=True, side_effect=original_select) as select:
+            code, output, errors = self._run(
+                "--retry-from", self.report_path, "--report", self.td / "retry.json",
+                "--no-auto-rollback")
+        self.assertEqual(code, 0, errors)
+        self.assertTrue(output.startswith("b: ok version=1.0.0\n"))
+        self.assertEqual(select.call_args.args[1], "b")
+        self.assertEqual([call.args[0].alias for call in self.ssh.call_args_list], ["b", "b"])
+        self.assertIn("RKDEPLOY_NO_AUTO_ROLLBACK=1", self.ssh.call_args.args[1])
+        self.assertEqual(self.scp.call_args.args[0].alias, "b")
+        report = json.loads((self.td / "retry.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["boards"], [{"alias": "b", "outcome": "ok", "version": "1.0.0"}])
+
+    def test_app_mismatch_rejected_even_when_all_ok(self):
+        self._report([("a", "ok")], app="another-app")
+        code, _, errors = self._run("--retry-from", self.report_path)
+        self.assertEqual(code, 2)
+        self.assertIn("does not match", errors)
+        self._assert_no_contact()
+
+    def test_all_missing_failed_aliases_are_listed_before_any_contact(self):
+        self._report([("b", "failed"), ("missing-z", "error"), ("missing-a", "aborted")])
+        code, _, errors = self._run("--retry-from", self.report_path)
+        self.assertEqual(code, 2)
+        self.assertIn("missing-a, missing-z", errors)
+        self._assert_no_contact()
+
+    def test_unreadable_or_invalid_json_rejected(self):
+        for payload in (b"{broken", b"\xff", b"null", b"[]"):
+            with self.subTest(payload=payload):
+                self.report_path.write_bytes(payload)
+                self.assertEqual(self._run("--retry-from", self.report_path)[0], 2)
+        for path in (self.td / "missing.json", self.td):
+            with self.subTest(path=path):
+                self.assertEqual(self._run("--retry-from", path)[0], 2)
+        self._assert_no_contact()
+
+    def test_wrong_kind_schema_or_malformed_boards_rejected(self):
+        for overrides in ({"kind": "status"}, {"schema_version": 2},
+                          {"schema_version": True}, {"schema_version": "1"},
+                          {"boards": None}, {"boards": {}}, {"boards": [None]},
+                          {"boards": [{"alias": "a"}]},
+                          {"boards": [{"alias": "", "outcome": "failed"}]}):
+            with self.subTest(overrides=overrides):
+                self._report([("a", "failed")], **overrides)
+                self.assertEqual(self._run("--retry-from", self.report_path)[0], 2)
+        self._assert_no_contact()
+
+    def test_conflicting_flags_rejected(self):
+        for options in (("--report", self.report_path, "--dry-run"),
+                        ("--retry-from", self.report_path, "--dry-run"),
+                        ("--retry-from", self.report_path, "--hosts", "a"),
+                        ("--retry-from", self.report_path, "--hosts", "")):
+            with self.subTest(options=options):
+                self.assertEqual(self._run(*options)[0], 2)
+        self.assertFalse(self.report_path.exists())
+        self._assert_no_contact()
+
+    def test_report_write_failure_warns_and_preserves_each_exit_code(self):
+        for outcome, expected in (("ok", 0), ("aborted", 4), ("unreachable", 5),
+                                  ("rolled-back", 6), ("failed", 7)):
+            self._transport({"a": outcome})
+            for path in (self.td / "missing" / "report.json", self.td):
+                with self.subTest(outcome=outcome, path=path):
+                    code, output, errors = self._run("--hosts", "a", "--report", path)
+                    self.assertEqual(code, expected)
+                    self.assertIn("warning: cannot write deploy report", errors)
+                    self.assertNotIn("report written", output)
+
+    def test_retry_and_normal_deploy_use_same_outcomes_and_exit_codes(self):
+        for outcome, expected in (("ok", 0), ("rolled-back", 6), ("aborted", 4),
+                                  ("unreachable", 5), ("upload-failed", 5), ("error", 5),
+                                  ("unknown", 5), ("failed", 7), ("rollback-failed", 7)):
+            with self.subTest(outcome=outcome):
+                self._report([("a", "ok"), ("b", outcome if outcome != "ok" else "failed")])
+                self._transport({"b": outcome})
+                normal = self._run("--hosts", "b")
+                retry = self._run("--retry-from", self.report_path)
+                self.assertEqual(normal[0], expected)
+                self.assertEqual(retry, normal)
+
+    def test_duplicate_failed_alias_is_deployed_once(self):
+        self._report([("b", "failed"), ("b", "error")])
+        self._transport({"b": "ok"})
+        self.assertEqual(self._run("--retry-from", self.report_path),
+                         (0, "b: ok version=1.0.0\n", ""))
+        self.scp.assert_called_once()
+
+    def test_alias_must_not_expand_into_other_boards(self):
+        with self.fleet_path.open("a", encoding="utf-8") as f:
+            f.write("  - {alias: 'tag:pilot', address: 192.0.2.3}\n")
+        self._report([("tag:pilot", "failed")])
+        code, _, errors = self._run("--retry-from", self.report_path)
+        self.assertEqual(code, 2)
+        self.assertIn("cannot be selected exactly", errors)
+        self._assert_no_contact()
+
+    def test_exception_report_and_worst_exit_code(self):
+        self._transport({"a": "rollback-failed", "b": RuntimeError("transport failure")})
+        code, output, errors = self._run("--report", self.report_path)
+        self.assertEqual(code, 7, errors)
+        self.assertTrue(output.startswith("a: rollback-failed version=1.0.0\nb: error\n"))
+        report = json.loads(self.report_path.read_text(encoding="utf-8"))
+        self.assertEqual(report["boards"][1], {"alias": "b", "outcome": "error", "version": None})
 
 
 class UninstallCLITests(unittest.TestCase):

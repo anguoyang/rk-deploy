@@ -43,7 +43,7 @@ overlap: rk-deploy's status only looks at the apps it deployed.
 
 ```
 rkdeploy pack     [--manifest rkdeploy.yaml] [--out dist/]
-rkdeploy deploy   --fleet fleet.yaml <package.tar.gz> [--hosts tag:x|name,...] [--jobs 4] [--no-auto-rollback]
+rkdeploy deploy   --fleet fleet.yaml <package.tar.gz> [--hosts tag:x|name,...] [--jobs 4] [--no-auto-rollback] [--report run.json] [--retry-from run.json]
 rkdeploy rollback --fleet fleet.yaml --app <name> [--to <version>] [--hosts ...]
 rkdeploy uninstall --fleet fleet.yaml --app <name> [--hosts ...] [--jobs 4] [--allow-last-copy] [--purge]
 rkdeploy status   --fleet fleet.yaml --app <name> [--json report.json] [--html report.html]
@@ -220,6 +220,56 @@ ssh:
 9. Failure: auto-rollback by default — switch back, re-render the old
    unit, restart, re-check — and report `DEPLOY_FAILED_ROLLED_BACK`
    (exit 6).
+
+## Deploy reports and failed-board retry
+
+`deploy --report run.json` writes a JSON report after deployment completes,
+including unsuccessful board outcomes. Existing output files are overwritten.
+The deploy report is separate from the unchanged status JSON schema 1:
+
+```json
+{
+  "schema_version": 1,
+  "kind": "deploy",
+  "app": "demo",
+  "package": "demo-1.1.0.tar.gz",
+  "generated_at": "2026-11-10T00:00:00+00:00",
+  "boards": [
+    {"alias": "board-a", "outcome": "ok", "version": "1.1.0"},
+    {"alias": "board-b", "outcome": "unreachable", "version": null}
+  ]
+}
+```
+
+`app` is the package metadata name; `package` is the package file name
+without directories. `generated_at` is ISO 8601 UTC. Each selected board
+has an alias, outcome and reported version (or `null` when unavailable).
+An exception during a board operation is recorded as outcome `error`.
+Report write failures, including a missing parent directory, print a warning
+to stderr and preserve the deployment exit code.
+
+```sh
+rkdeploy deploy demo-1.1.0.tar.gz --fleet fleet.yaml --report run.json
+rkdeploy deploy demo-1.1.0.tar.gz --fleet fleet.yaml --retry-from run.json --report retry.json
+```
+
+`--retry-from` loads a deploy report and selects only boards whose outcome
+is not `ok`, including `rolled-back`. Before any SSH contact, it validates
+that the report is readable JSON with `kind: "deploy"`, `schema_version: 1`,
+the same application name as the supplied package, and a `boards` list
+containing non-empty alias and outcome strings. Invalid input exits 2.
+Every failed alias must exist in the supplied fleet; missing aliases are
+listed and the entire retry is rejected with exit 2. Alias selection uses
+the existing fleet selector and must resolve exactly to the failed aliases.
+Successful boards need not remain in the fleet. If there are no failed
+boards, the command prints that there is nothing to retry and exits 0
+without SSH contact or a new deployment report.
+
+Retry uses the normal deployment operation, per-board output and exit-code
+rules. `--jobs` and `--no-auto-rollback` still apply, and `--report` may save
+the retry's results. `--retry-from` cannot be combined with `--hosts` or
+`--dry-run`; `--report` cannot be combined with `--dry-run`. These conflicts
+are usage errors (exit 2) before contacting boards.
 
 ## Rollback
 

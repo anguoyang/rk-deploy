@@ -1,6 +1,8 @@
 """rkdeploy command line."""
 import argparse
+from datetime import datetime, timezone
 import json
+import os
 import sys
 
 from . import __version__, ops
@@ -27,11 +29,70 @@ def cmd_pack(args):
     return OK
 
 
+def _deploy_exit_code(outcome):
+    if outcome == "ok":
+        return OK
+    if outcome == "rolled-back":
+        return ROLLED_BACK
+    if outcome == "aborted":
+        return VERIFY
+    if outcome in ("unreachable", "upload-failed", "error", "unknown"):
+        return PARTIAL
+    return FAILED  # failed / rollback-failed: a board left in a bad state
+
+
+def _retry_hosts(path, app, fleet):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            report = json.load(f)
+    except (OSError, ValueError) as e:
+        raise FleetError(f"cannot read deploy report {path}: {e}") from e
+    if (not isinstance(report, dict) or report.get("kind") != "deploy"
+            or type(report.get("schema_version")) is not int
+            or report["schema_version"] != 1):
+        raise FleetError("retry report must have kind 'deploy' and schema_version 1")
+    if report.get("app") != app:
+        raise FleetError(f"retry report app {report.get('app')!r} does not match package app {app!r}")
+    boards = report.get("boards")
+    if not isinstance(boards, list):
+        raise FleetError("retry report boards must be a list")
+    failed = []
+    for board in boards:
+        if (not isinstance(board, dict)
+                or not isinstance(board.get("alias"), str) or not board["alias"]
+                or not isinstance(board.get("outcome"), str) or not board["outcome"]):
+            raise FleetError("retry report boards must contain non-empty alias and outcome strings")
+        if board["outcome"] != "ok" and board["alias"] not in failed:
+            failed.append(board["alias"])
+    missing = sorted(set(failed) - {h.alias for h in fleet.hosts})
+    if missing:
+        raise FleetError(f"retry aliases missing from fleet: {', '.join(missing)}")
+    if not failed:
+        return []
+    hosts = fleet.select(",".join(failed))
+    # Aliases must not expand as tag selectors or comma-separated aliases.
+    if {h.alias for h in hosts} != set(failed):
+        raise FleetError("retry aliases cannot be selected exactly with Fleet.select")
+    return hosts
+
+
 def cmd_deploy(args):
+    if args.dry_run and (args.report is not None or args.retry_from is not None):
+        print("error: --dry-run cannot be combined with --report or --retry-from", file=sys.stderr)
+        return USAGE
+    if args.retry_from is not None and args.hosts is not None:
+        print("error: --retry-from cannot be combined with --hosts", file=sys.stderr)
+        return USAGE
     meta = ops.read_package_meta(args.package)
     app = meta["name"]
     fleet = _load(args)
-    hosts = _select(fleet, args)
+    if args.retry_from is not None:
+        hosts = _retry_hosts(args.retry_from, app, fleet)
+        if not hosts:
+            print("Nothing to retry; all boards in the deploy report are ok.")
+            return OK
+    else:
+        hosts = _select(fleet, args)
     if args.dry_run:
         unit_template = ops.read_package_unit_template(args.package)
         for host in hosts:
@@ -49,21 +110,29 @@ def cmd_deploy(args):
     results = run_fleet(hosts, lambda h: ops.deploy_host(h, args.package, app, args.no_auto_rollback),
                         jobs=args.jobs)
     worst = OK
+    boards = []
     for h in hosts:
         r = results[h.alias]
         if isinstance(r, Exception):
             r = {"alias": h.alias, "outcome": "error", "log": str(r)}
         print(f"{h.alias}: {r['outcome']}" + (f" version={r.get('version')}" if r.get("version") else ""))
-        if r["outcome"] == "ok":
-            continue
-        if r["outcome"] == "rolled-back":
-            worst = max(worst, ROLLED_BACK)
-        elif r["outcome"] == "aborted":
-            worst = max(worst, VERIFY)
-        elif r["outcome"] in ("unreachable", "upload-failed", "error", "unknown"):
-            worst = max(worst, PARTIAL)
-        else:  # failed / rollback-failed: a board left in a bad state
-            worst = FAILED
+        worst = max(worst, _deploy_exit_code(r["outcome"]))
+        boards.append({"alias": h.alias, "outcome": r["outcome"], "version": r.get("version")})
+    if args.report is not None:
+        report = {
+            "schema_version": 1,
+            "kind": "deploy",
+            "app": app,
+            "package": os.path.basename(args.package),
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "boards": boards,
+        }
+        try:
+            with open(args.report, "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2)
+            print(f"report written to {args.report}")
+        except OSError as e:
+            print(f"warning: cannot write deploy report {args.report}: {e}", file=sys.stderr)
     return worst
 
 
@@ -252,6 +321,8 @@ def main(argv=None):
             sp.add_argument("--no-auto-rollback", action="store_true")
             sp.add_argument("--dry-run", action="store_true",
                             help="preview deployment without contacting boards")
+            sp.add_argument("--report", help="write a JSON deploy report")
+            sp.add_argument("--retry-from", help="retry failed boards from a JSON deploy report")
         else:
             sp.add_argument("--app", required=True)
             sp.add_argument("--to", default=None)

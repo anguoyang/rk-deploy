@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `rkdeploy deploy --report run.json` saves per-board deployment outcomes;
+  `--retry-from run.json` retries only failed boards after validating the
+  application and fleet aliases. Report write failures warn without changing
+  the deployment exit code.
+
 ## 0.2.0 — 2026-11-08
 
 - `rkdeploy status --html report.html`: standalone offline fleet report with

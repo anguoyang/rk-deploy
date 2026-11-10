@@ -61,6 +61,7 @@ healthcheck:
 ```sh
 rkdeploy pack                                  # → demo-1.1.0.tar.gz (checksummed)
 rkdeploy deploy --fleet fleet.yaml demo-1.1.0.tar.gz
+rkdeploy deploy --fleet fleet.yaml demo-1.1.0.tar.gz --report run.json  # save outcomes; --retry-from run.json retries failed boards
 rkdeploy deploy --fleet fleet.yaml --dry-run demo-1.1.0.tar.gz  # preview only, no SSH
 rkdeploy rollback --fleet fleet.yaml --app demo
 rkdeploy status --fleet fleet.yaml --app demo --json report.json  # JSON + per-board summary
